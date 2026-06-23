@@ -1,0 +1,1079 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>I2C Protocol Interactive Masterclass</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/inter@5.0.0/index.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/jetbrains-mono@5.0.0/index.css">
+<style>
+  body { font-family: 'Inter', sans-serif; background: #020617; color: #e2e8f0; }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+  .glass { background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(10px); border: 1px solid rgba(71, 85, 105, 0.5); }
+  .chip { background: linear-gradient(135deg, #1e293b, #0f172a); border: 2px solid #475569; transition: all 0.3s; }
+  .chip.driving { border-color: #38bdf8; box-shadow: 0 0 25px rgba(56, 189, 248, 0.5); }
+  .chip.addressed { border-color: #22c55e; box-shadow: 0 0 25px rgba(34, 197, 94, 0.5); }
+  .chip.listening { border-color: #a78bfa; box-shadow: 0 0 15px rgba(167, 139, 250, 0.3); }
+
+  .wire { position: absolute; height: 4px; transition: background-color 0.15s ease, box-shadow 0.15s ease; }
+  .wire.sda { background: #6b21a8; }
+  .wire.sda.high { background: #c4b5fd; box-shadow: 0 0 12px #c4b5fd, 0 0 24px rgba(196, 181, 253, 0.5); }
+  .wire.sda.low { background: #4c1d95; box-shadow: inset 0 0 4px #000; }
+  .wire.scl { background: #78350f; }
+  .wire.scl.high { background: #fbbf24; box-shadow: 0 0 12px #fbbf24, 0 0 24px rgba(251, 191, 36, 0.5); }
+  .wire.scl.low { background: #451a03; box-shadow: inset 0 0 4px #000; }
+
+  @keyframes wirePulse {
+    0% { filter: brightness(1); }
+    50% { filter: brightness(2.2); }
+    100% { filter: brightness(1); }
+  }
+  .wire.pulse { animation: wirePulse 0.3s ease-out; }
+
+  .drop { position: absolute; width: 3px; transition: background-color 0.15s ease, box-shadow 0.15s ease; }
+  .drop.sda { background: #6b21a8; }
+  .drop.sda.high { background: #c4b5fd; box-shadow: 0 0 8px #c4b5fd; }
+  .drop.sda.low { background: #4c1d95; }
+  .drop.scl { background: #78350f; }
+  .drop.scl.high { background: #fbbf24; box-shadow: 0 0 8px #fbbf24; }
+  .drop.scl.low { background: #451a03; }
+
+  .btn { transition: all 0.2s; }
+  .btn:hover:not(:disabled) { transform: translateY(-1px); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .bit-cell { transition: all 0.3s; }
+  .bit-cell.current { transform: scale(1.15); box-shadow: 0 0 15px currentColor; z-index: 10; }
+  .bit-cell.done { opacity: 0.4; }
+
+  input[type=range] { -webkit-appearance: none; background: transparent; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 14px; width: 14px; border-radius: 50%; background: #38bdf8; cursor: pointer; margin-top: -5px; }
+  input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; background: #334155; border-radius: 2px; }
+  .scroll-log::-webkit-scrollbar { width: 6px; }
+  .scroll-log::-webkit-scrollbar-track { background: #0f172a; }
+  .scroll-log::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+  canvas { display: block; }
+
+  .info-panel {
+    position: fixed;
+    right: -420px;
+    top: 0;
+    bottom: 0;
+    width: 400px;
+    max-width: 90vw;
+    background: rgba(15, 23, 42, 0.95);
+    backdrop-filter: blur(12px);
+    border-left: 1px solid rgba(56, 189, 248, 0.3);
+    transition: right 0.3s ease;
+    z-index: 50;
+    overflow-y: auto;
+  }
+  .info-panel.open { right: 0; }
+
+  .info-toggle {
+    position: fixed;
+    right: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 45;
+    transition: right 0.3s ease;
+  }
+  .info-panel.open ~ .info-toggle { right: 420px; }
+
+  .phase-icon {
+    width: 48px; height: 48px;
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px;
+  }
+
+  /* SCL edge indicator */
+  .edge-indicator {
+    position: absolute;
+    font-size: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    color: #fbbf24;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .edge-indicator.show { opacity: 1; }
+</style>
+</head>
+<body class="min-h-screen">
+
+<header class="border-b border-slate-800 bg-slate-950/80 backdrop-blur sticky top-0 z-40">
+  <div class="max-w-[1600px] mx-auto px-4 py-3 flex items-center justify-between flex-wrap gap-3">
+    <div class="flex items-center gap-3">
+      <div class="bg-sky-500/20 p-2 rounded-lg">
+        <svg class="w-5 h-5 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+      </div>
+      <div>
+        <h1 class="text-lg font-bold text-white">I2C Protocol Masterclass</h1>
+        <p class="text-xs text-slate-400">Continuous Flow with On-Demand Explanations</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-2">
+      <div class="hidden md:flex items-center gap-2 mr-3 mono text-xs">
+        <span class="text-slate-500">Step:</span>
+        <span id="progressText" class="text-sky-400 font-bold">0 / 0</span>
+      </div>
+      <button id="btnStepBack" class="btn bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded-lg text-sm mono" disabled>◀ Back</button>
+      <button id="btnPlay" class="btn bg-sky-600 hover:bg-sky-500 text-white px-4 py-1.5 rounded-lg text-sm font-bold flex items-center gap-2">
+        <svg id="iconPlay" class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+        <svg id="iconPause" class="w-4 h-4 hidden" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+        <span id="playText">Play</span>
+      </button>
+      <button id="btnStepFwd" class="btn bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded-lg text-sm mono">Step ▶</button>
+      <button id="btnReset" class="btn bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded-lg text-sm mono">↺ Reset</button>
+    </div>
+  </div>
+</header>
+
+<main class="max-w-[1600px] mx-auto p-4 grid grid-cols-1 xl:grid-cols-12 gap-4">
+
+  <!-- LEFT: Configuration -->
+  <aside class="xl:col-span-3 space-y-4">
+    <div class="glass rounded-xl p-4">
+      <h3 class="text-xs font-bold text-sky-400 uppercase tracking-wider mb-3">Transfer Configuration</h3>
+      <div class="space-y-3">
+        <div>
+          <label class="text-xs text-slate-400 block mb-1">Target Slave Address (7-bit)</label>
+          <input type="number" id="cfgAddr" min="0" max="127" value="72" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 mono text-sm text-white focus:border-sky-500 outline-none">
+          <div class="text-xs mono text-slate-500 mt-1">Hex: <span id="cfgAddrHex" class="text-sky-300">0x48</span> · Bin: <span id="cfgAddrBin" class="text-sky-300">1001000</span></div>
+        </div>
+        <div>
+          <label class="text-xs text-slate-400 block mb-1">Data Byte to Send</label>
+          <input type="number" id="cfgData" min="0" max="255" value="165" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 mono text-sm text-white focus:border-sky-500 outline-none">
+          <div class="text-xs mono text-slate-500 mt-1">Hex: <span id="cfgDataHex" class="text-green-300">0xA5</span> · Bin: <span id="cfgDataBin" class="text-green-300">10100101</span></div>
+        </div>
+        <div>
+          <label class="text-xs text-slate-400 block mb-1">Direction</label>
+          <div class="grid grid-cols-2 gap-2">
+            <button id="dirWrite" class="dir-btn btn bg-sky-600 text-white px-3 py-1.5 rounded-lg text-sm font-semibold">WRITE (0)</button>
+            <button id="dirRead" class="dir-btn btn bg-slate-800 text-slate-300 px-3 py-1.5 rounded-lg text-sm font-semibold">READ (1)</button>
+          </div>
+        </div>
+        <div>
+          <label class="text-xs text-slate-400 block mb-1">Slave Response</label>
+          <div class="grid grid-cols-2 gap-2">
+            <button id="respAck" class="resp-btn btn bg-green-600 text-white px-3 py-1.5 rounded-lg text-sm font-semibold">ACK</button>
+            <button id="respNack" class="resp-btn btn bg-slate-800 text-slate-300 px-3 py-1.5 rounded-lg text-sm font-semibold">NACK</button>
+          </div>
+        </div>
+        <div>
+          <label class="text-xs text-slate-400 block mb-1">Animation Speed</label>
+          <input type="range" id="cfgSpeed" min="1" max="10" value="5" class="w-full">
+          <div class="flex justify-between text-xs mono text-slate-500"><span>Slow</span><span id="speedLabel">5x</span><span>Fast</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="glass rounded-xl p-4">
+      <h3 class="text-xs font-bold text-amber-400 uppercase tracking-wider mb-3">📖 Live Phase Info</h3>
+      <div id="phaseExplain" class="text-sm text-slate-300 leading-relaxed">
+        Press <span class="mono text-sky-400 font-bold">Play</span> to start. Bus is IDLE with SDA=SCL=HIGH.
+      </div>
+    </div>
+
+    <div class="glass rounded-xl p-4">
+      <h3 class="text-xs font-bold text-purple-400 uppercase tracking-wider mb-3">Event Log</h3>
+      <div id="logContainer" class="scroll-log h-48 overflow-y-auto mono text-xs space-y-1">
+        <div class="text-slate-500 italic">Waiting...</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- CENTER: Bus Diagram -->
+  <section class="xl:col-span-9 space-y-4">
+    
+    <div class="glass rounded-xl p-4">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-xs font-bold text-slate-300 uppercase tracking-wider">Physical Bus Topology</h3>
+        <div class="flex gap-3 text-xs mono">
+          <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-purple-400 shadow-[0_0_8px_#c4b5fd]"></span> SDA</span>
+          <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-amber-400 shadow-[0_0_8px_#fbbf24]"></span> SCL</span>
+        </div>
+      </div>
+      
+      <div class="relative bg-slate-950 rounded-lg border border-slate-800 h-[320px]" id="busDiagram">
+        <!-- Pull-up resistors -->
+        <div class="absolute top-2 left-[15%] text-center z-10">
+          <div class="text-[10px] mono text-slate-500">Rp 4.7kΩ</div>
+          <div class="w-0.5 h-5 bg-slate-600 mx-auto"></div>
+          <div class="w-3 h-1.5 border border-slate-500 mx-auto bg-slate-800"></div>
+          <div class="w-0.5 h-3 bg-slate-600 mx-auto"></div>
+          <div class="text-[10px] mono text-amber-400 font-bold">VCC</div>
+        </div>
+        <div class="absolute top-2 left-[45%] text-center z-10">
+          <div class="text-[10px] mono text-slate-500">Rp 4.7kΩ</div>
+          <div class="w-0.5 h-5 bg-slate-600 mx-auto"></div>
+          <div class="w-3 h-1.5 border border-slate-500 mx-auto bg-slate-800"></div>
+          <div class="w-0.5 h-3 bg-slate-600 mx-auto"></div>
+          <div class="text-[10px] mono text-amber-400 font-bold">VCC</div>
+        </div>
+
+        <!-- Bus wires -->
+        <div id="wireSda" class="wire sda high" style="top: 100px; left: 8%; right: 8%;"></div>
+        <div id="wireScl" class="wire scl high" style="top: 170px; left: 8%; right: 8%;"></div>
+        <div class="absolute text-xs mono text-purple-300 font-bold" style="top: 85px; left: 3%;">SDA</div>
+        <div class="absolute text-xs mono text-amber-300 font-bold" style="top: 155px; left: 3%;">SCL</div>
+
+        <!-- Edge indicators -->
+        <div id="edgeIndicator" class="edge-indicator" style="top: 140px; left: 50%;">↑ RISING EDGE</div>
+
+        <!-- Vertical drops -->
+        <div id="dropMasterSda" class="drop sda high" style="top: 100px; left: calc(20% - 1.5px); height: 70px;"></div>
+        <div id="dropMasterScl" class="drop scl high" style="top: 170px; left: calc(20% - 1.5px); height: 20px;"></div>
+        <div id="dropSlave1Sda" class="drop sda high" style="top: 100px; left: calc(55% - 1.5px); height: 70px;"></div>
+        <div id="dropSlave1Scl" class="drop scl high" style="top: 170px; left: calc(55% - 1.5px); height: 20px;"></div>
+        <div id="dropSlave2Sda" class="drop sda high" style="top: 100px; left: calc(85% - 1.5px); height: 70px;"></div>
+        <div id="dropSlave2Scl" class="drop scl high" style="top: 170px; left: calc(85% - 1.5px); height: 20px;"></div>
+
+        <!-- Master Chip -->
+        <div id="chipMaster" class="chip absolute rounded-lg p-3 w-36" style="top: 190px; left: calc(20% - 72px);">
+          <div class="text-xs font-bold text-sky-400 mb-1 flex items-center gap-1">
+            <span class="w-2 h-2 rounded-full bg-sky-400"></span> MASTER
+          </div>
+          <div class="text-[10px] mono text-slate-400">MCU (STM32)</div>
+          <div class="text-[10px] mono text-slate-500 mt-1" id="masterStatus">Idle</div>
+        </div>
+
+        <!-- Slave 1 Chip -->
+        <div id="chipSlave1" class="chip absolute rounded-lg p-3 w-36" style="top: 190px; left: calc(55% - 72px);">
+          <div class="text-xs font-bold text-slate-300 mb-1 flex items-center gap-1">
+            <span class="w-2 h-2 rounded-full bg-slate-500"></span> SLAVE 1
+          </div>
+          <div class="text-[10px] mono text-slate-400">Addr: 0x48</div>
+          <div class="text-[10px] mono text-slate-500 mt-1" id="slave1Status">Idle</div>
+        </div>
+
+        <!-- Slave 2 Chip -->
+        <div id="chipSlave2" class="chip absolute rounded-lg p-3 w-36" style="top: 190px; left: calc(85% - 72px);">
+          <div class="text-xs font-bold text-slate-300 mb-1 flex items-center gap-1">
+            <span class="w-2 h-2 rounded-full bg-slate-500"></span> SLAVE 2
+          </div>
+          <div class="text-[10px] mono text-slate-400">Addr: 0x68</div>
+          <div class="text-[10px] mono text-slate-500 mt-1" id="slave2Status">Idle</div>
+        </div>
+
+        <!-- Current Bit Badge -->
+        <div id="currentBitBadge" class="absolute top-3 right-3 bg-slate-900/95 border border-sky-500/50 rounded-lg px-3 py-2 mono text-xs hidden z-20">
+          <div class="text-slate-400 text-[10px]">Current Bit on SDA</div>
+          <div class="text-sky-400 font-bold text-xl" id="currentBitValue">-</div>
+          <div class="text-slate-500 text-[10px]" id="currentBitMeaning">-</div>
+        </div>
+
+        <!-- Driving Indicator -->
+        <div id="drivingBadge" class="absolute bottom-3 left-3 bg-slate-900/95 border border-amber-500/50 rounded-lg px-3 py-2 mono text-xs hidden z-20">
+          <div class="text-slate-400 text-[10px]">Bus Driven By</div>
+          <div class="text-amber-400 font-bold" id="drivingWho">-</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Waveform Oscilloscope -->
+    <div class="glass rounded-xl p-4">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-xs font-bold text-slate-300 uppercase tracking-wider">Oscilloscope View (SDA + SCL)</h3>
+        <div class="flex gap-4 text-xs mono">
+          <span class="flex items-center gap-1"><span class="w-4 h-0.5 bg-purple-400"></span> SDA</span>
+          <span class="flex items-center gap-1"><span class="w-4 h-0.5 bg-amber-400"></span> SCL</span>
+        </div>
+      </div>
+      <canvas id="waveformCanvas" class="w-full h-[200px] bg-slate-950 rounded-lg border border-slate-800"></canvas>
+    </div>
+
+    <!-- Bit Sequence Timeline -->
+    <div class="glass rounded-xl p-4">
+      <h3 class="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3">Bit Sequence Timeline</h3>
+      <div id="bitTimeline" class="flex gap-1 overflow-x-auto pb-2"></div>
+    </div>
+
+  </section>
+</main>
+
+<!-- Info Toggle Button (floating) -->
+<button id="infoToggle" class="info-toggle btn bg-sky-600 hover:bg-sky-500 text-white w-12 h-12 rounded-full shadow-lg shadow-sky-500/30 flex items-center justify-center" title="Show current step details (or press I)">
+  <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+</button>
+
+<!-- Info Side Panel -->
+<div id="infoPanel" class="info-panel p-6">
+  <div class="flex items-center justify-between mb-4">
+    <h3 class="text-sm font-bold text-sky-400 uppercase tracking-wider">Current Step Details</h3>
+    <button id="infoClose" class="text-slate-400 hover:text-white p-1">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+    </button>
+  </div>
+  
+  <div id="infoContent" class="space-y-4">
+    <div class="text-slate-500 italic text-sm">No step active. Press Play to begin.</div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// I2C PROTOCOL SIMULATION - CONTINUOUS FLOW + ON-DEMAND INFO
+// ============================================================
+
+const state = {
+  addr: 72,
+  data: 165,
+  dir: 0,
+  ack: true,
+  speed: 5,
+  playing: false,
+  checkpoints: [],
+  currentCheckpoint: -1,
+  sdaHistory: [],
+  sclHistory: [],
+  lastTick: 0,
+  tickAccumulator: 0
+};
+
+const els = {
+  cfgAddr: document.getElementById('cfgAddr'),
+  cfgData: document.getElementById('cfgData'),
+  cfgAddrHex: document.getElementById('cfgAddrHex'),
+  cfgAddrBin: document.getElementById('cfgAddrBin'),
+  cfgDataHex: document.getElementById('cfgDataHex'),
+  cfgDataBin: document.getElementById('cfgDataBin'),
+  dirWrite: document.getElementById('dirWrite'),
+  dirRead: document.getElementById('dirRead'),
+  respAck: document.getElementById('respAck'),
+  respNack: document.getElementById('respNack'),
+  cfgSpeed: document.getElementById('cfgSpeed'),
+  speedLabel: document.getElementById('speedLabel'),
+  btnPlay: document.getElementById('btnPlay'),
+  btnStepFwd: document.getElementById('btnStepFwd'),
+  btnStepBack: document.getElementById('btnStepBack'),
+  btnReset: document.getElementById('btnReset'),
+  iconPlay: document.getElementById('iconPlay'),
+  iconPause: document.getElementById('iconPause'),
+  playText: document.getElementById('playText'),
+  progressText: document.getElementById('progressText'),
+  phaseExplain: document.getElementById('phaseExplain'),
+  logContainer: document.getElementById('logContainer'),
+  wireSda: document.getElementById('wireSda'),
+  wireScl: document.getElementById('wireScl'),
+  dropMasterSda: document.getElementById('dropMasterSda'),
+  dropMasterScl: document.getElementById('dropMasterScl'),
+  dropSlave1Sda: document.getElementById('dropSlave1Sda'),
+  dropSlave1Scl: document.getElementById('dropSlave1Scl'),
+  dropSlave2Sda: document.getElementById('dropSlave2Sda'),
+  dropSlave2Scl: document.getElementById('dropSlave2Scl'),
+  chipMaster: document.getElementById('chipMaster'),
+  chipSlave1: document.getElementById('chipSlave1'),
+  chipSlave2: document.getElementById('chipSlave2'),
+  masterStatus: document.getElementById('masterStatus'),
+  slave1Status: document.getElementById('slave1Status'),
+  slave2Status: document.getElementById('slave2Status'),
+  currentBitBadge: document.getElementById('currentBitBadge'),
+  currentBitValue: document.getElementById('currentBitValue'),
+  currentBitMeaning: document.getElementById('currentBitMeaning'),
+  drivingBadge: document.getElementById('drivingBadge'),
+  drivingWho: document.getElementById('drivingWho'),
+  bitTimeline: document.getElementById('bitTimeline'),
+  canvas: document.getElementById('waveformCanvas'),
+  infoToggle: document.getElementById('infoToggle'),
+  infoPanel: document.getElementById('infoPanel'),
+  infoClose: document.getElementById('infoClose'),
+  infoContent: document.getElementById('infoContent'),
+  edgeIndicator: document.getElementById('edgeIndicator')
+};
+
+const ctx = els.canvas.getContext('2d');
+
+// ============================================================
+// CHECKPOINT BUILDER - FIXED: Proper SCL clocking
+// ============================================================
+function buildCheckpoints() {
+  const cps = [];
+  const addr = state.addr;
+  const data = state.data;
+  const rw = state.dir;
+  const ack = state.ack;
+  const addrBin = addr.toString(2).padStart(7, '0');
+  const dataBin = data.toString(2).padStart(8, '0');
+
+  // Each bit needs TWO checkpoints: SETUP (SCL=0) and SAMPLE (SCL=1)
+  // This creates a proper square wave on SCL
+
+  const add = (phase, title, body, visual, sda, scl, driving, logMsg, icon, edge) => {
+    cps.push({ phase, title, body, visual, sda, scl, driving, logMsg, icon, edge });
+  };
+
+  // 1. IDLE
+  add('IDLE', 'Bus is IDLE — Ready to Begin',
+    `Both SDA and SCL lines are held <strong class="text-slate-100">HIGH</strong> by the 4.7kΩ pull-up resistors connected to VCC. This is the default "free bus" state. No device is driving either line. Any master can initiate communication by generating a START condition.`,
+    `<div class="text-purple-300">SDA = 1 (HIGH)</div><div class="text-amber-300">SCL = 1 (HIGH)</div><div class="text-slate-400 mt-2">→ Master will pull SDA LOW while SCL stays HIGH</div>`,
+    1, 1, 'none', 'Bus IDLE: SDA=HIGH, SCL=HIGH', '💤', null);
+
+  // 2. START condition: SDA falls while SCL=1
+  add('START', '🔴 START Condition Generated',
+    `The <strong class="text-sky-400">Master</strong> pulls <span class="mono text-purple-300 font-bold">SDA from HIGH → LOW</span> while <span class="mono text-amber-300 font-bold">SCL remains HIGH</span>. This specific transition is the I2C START condition. All slaves on the bus detect this and wake up to listen. The bus is now BUSY.`,
+    `<div class="text-red-400 font-bold">START: SDA ↓ while SCL = 1</div><div class="text-slate-400 mt-2">This is the ONLY time SDA can change while SCL=HIGH</div><div class="text-slate-400">After START, Master pulls SCL LOW to begin clocking</div>`,
+    0, 1, 'master', 'START condition: SDA falls while SCL=HIGH', '', null);
+
+  // 3. SCL goes LOW after START (setup for first address bit)
+  add('START', 'SCL Pulled LOW — Clocking Begins',
+    `After the START, the Master pulls <span class="mono text-amber-300 font-bold">SCL LOW</span>. This is important: <strong class="text-slate-100">SDA is only allowed to change when SCL is LOW</strong>. When SCL is HIGH, SDA must remain stable (that's when receivers sample it). Now the Master is ready to send the 7-bit address.`,
+    `<div class="text-amber-300">SCL = 0 (LOW)</div><div class="text-slate-400 mt-2">SDA can now change safely</div><div class="text-slate-400">Next: 7-bit address, MSB first</div>`,
+    0, 0, 'master', 'SCL pulled LOW — ready to clock address', '⏱️', '↓');
+
+  // Address bits - each bit has SETUP (SCL=0) + SAMPLE (SCL=1)
+  for (let i = 0; i < 7; i++) {
+    const bit = parseInt(addrBin[i]);
+    const bitName = i === 0 ? 'MSB (A6)' : i === 6 ? 'LSB (A0)' : `A${6-i}`;
+    
+    // SETUP phase: SCL=0, SDA = bit value
+    add('ADDR', `Address Bit ${i+1}/7: ${bitName} = ${bit} [SETUP]`,
+      `Master places bit <strong class="text-sky-400">${bit}</strong> on SDA while SCL is LOW. The SDA line is now stable and ready to be sampled. All slaves are watching.`,
+      `<div class="flex gap-4 items-center"><div class="text-purple-300 font-bold text-lg">SDA = ${bit} (stable)</div><div class="text-amber-300">SCL = 0 (LOW)</div></div><div class="text-slate-400 mt-2">Received so far: <span class="text-purple-300">${addrBin.substring(0, i+1)}</span><span class="text-slate-600">${addrBin.substring(i+1)}</span></div><div class="text-slate-500 mt-1">→ Next: SCL rises to sample this bit</div>`,
+      bit, 0, 'master', `ADDR bit ${i+1} SETUP: SDA=${bit}`, '', '↓');
+
+    // SAMPLE phase: SCL=1, SDA still = bit value
+    add('ADDR', `Address Bit ${i+1}/7: ${bitName} = ${bit} [SAMPLE]`,
+      `Master pulses SCL HIGH. On the <strong class="text-amber-400">rising edge of SCL</strong>, all slaves sample the SDA line and read bit value <strong class="text-sky-400">${bit}</strong>. Each slave compares the accumulated address with its own.`,
+      `<div class="flex gap-4 items-center"><div class="text-purple-300 font-bold text-lg">SDA = ${bit} (sampled)</div><div class="text-amber-300 font-bold">SCL = 1 (HIGH) ↑</div></div><div class="text-green-400 mt-2">✓ Slaves sample SDA on rising edge</div><div class="text-slate-400">→ Next: SCL falls, SDA can change</div>`,
+      bit, 1, 'master', `ADDR bit ${i+1} SAMPLED: ${bit}`, '', '↑');
+  }
+
+  // R/W bit - SETUP + SAMPLE
+  add('RW', `R/W Bit: ${rw === 0 ? 'WRITE (0)' : 'READ (1)'} [SETUP]`,
+    `Master places the direction bit <strong class="text-sky-400">${rw}</strong> on SDA while SCL is LOW. <strong>${rw === 0 ? 'WRITE = Master will send data to Slave' : 'READ = Slave will send data to Master'}</strong>.`,
+    `<div class="flex gap-4 items-center"><div class="text-sky-300 font-bold text-lg">R/W = ${rw} (${rw === 0 ? 'WRITE' : 'READ'})</div><div class="text-amber-300">SCL = 0</div></div><div class="text-slate-400 mt-2">Slave 1 (0x${addr.toString(16).toUpperCase().padStart(2,'0')}) ${state.addr === 72 || state.addr === 104 ? '← MATCHES!' : 'no match'}</div>`,
+    rw, 0, 'master', `R/W SETUP: ${rw} (${rw === 0 ? 'WRITE' : 'READ'})`, '', '↓');
+
+  add('RW', `R/W Bit: ${rw === 0 ? 'WRITE (0)' : 'READ (1)'} [SAMPLE]`,
+    `SCL rises HIGH. All slaves sample the R/W bit. The slave whose address matched now knows whether to <strong class="text-sky-400">${rw === 0 ? 'receive data (WRITE)' : 'transmit data (READ)'}</strong>.`,
+    `<div class="flex gap-4 items-center"><div class="text-sky-300 font-bold text-lg">R/W = ${rw} (sampled)</div><div class="text-amber-300 font-bold">SCL = 1 ↑</div></div><div class="text-slate-400 mt-2">Addressed slave prepares for ${rw === 0 ? 'receiving' : 'transmitting'}</div>`,
+    rw, 1, 'master', `R/W SAMPLED: ${rw}`, '', '↑');
+
+  // ACK/NACK - SETUP + SAMPLE
+  const ackBit = ack ? 0 : 1;
+  add('ACK', (ack ? '✅ ACK' : '❌ NACK') + ' — Setup Phase',
+    ack 
+      ? `Master <strong class="text-slate-100">releases SDA</strong> (lets it float). The addressed Slave will pull SDA LOW during the 9th clock pulse to acknowledge. SCL is still LOW.`
+      : `Master releases SDA. The slave does NOT pull it LOW (either wrong address, or busy). SDA will stay HIGH due to pull-up resistor.`,
+    ack
+      ? `<div class="text-slate-400">SDA released (floating HIGH)</div><div class="text-amber-300">SCL = 0</div><div class="text-slate-400 mt-2">→ Slave will drive SDA LOW for ACK</div>`
+      : `<div class="text-slate-400">SDA released (stays HIGH)</div><div class="text-amber-300">SCL = 0</div><div class="text-slate-400 mt-2">→ No device will pull SDA LOW</div>`,
+    1, 0, 'none', 'ACK/NACK setup: SDA released', '', '↓');
+
+  add('ACK', ack ? '✅ ACK Received — Slave Acknowledges' : '❌ NACK Received — No Acknowledge',
+    ack 
+      ? `The <strong class="text-green-400">addressed Slave</strong> pulls SDA LOW during the 9th SCL pulse. Master samples SDA on SCL rising edge and sees <strong class="text-green-400">0 = ACK</strong>. This means <strong>"I'm here, I received the address, ready for data."</strong>`
+      : `The slave does NOT pull SDA LOW. SDA stays HIGH due to pull-up. Master samples <strong class="text-red-400">1 = NACK</strong>. This means <strong>"I'm not here" or "I can't respond."</strong> Master will issue STOP.`,
+    ack
+      ? `<div class="text-green-400 font-bold">ACK = 0 (SDA pulled LOW by Slave)</div><div class="text-amber-300 font-bold">SCL = 1 ↑</div><div class="text-slate-400 mt-2">Slave drives SDA during 9th clock</div><div class="text-green-400">Transfer continues → Data phase</div>`
+      : `<div class="text-red-400 font-bold">NACK = 1 (SDA stays HIGH)</div><div class="text-amber-300 font-bold">SCL = 1 ↑</div><div class="text-slate-400 mt-2">No device pulled SDA LOW</div><div class="text-red-400">Transfer ends → STOP condition</div>`,
+    ackBit, 1, ack ? 'slave' : 'none', ack ? 'ACK received from slave' : 'NACK — no response', ack ? '✅' : '❌', '↑');
+
+  // If NACK, go to STOP
+  if (!ack) {
+    add('STOP', 'SCL falls after NACK',
+      `SCL returns LOW after the NACK sample. Master prepares STOP condition.`,
+      `<div class="text-amber-300">SCL = 0</div><div class="text-slate-400">Preparing STOP...</div>`,
+      1, 0, 'master', 'SCL falls after NACK', '', '↓');
+
+    add('STOP', '🔴 STOP Condition — Transfer Aborted',
+      `Master pulls SCL HIGH first, then releases SDA (lets it go HIGH via pull-up). The <strong class="text-red-400">LOW→HIGH transition on SDA while SCL=HIGH</strong> is the STOP condition. Bus returns to IDLE.`,
+      `<div class="text-red-400 font-bold">STOP: SDA ↑ while SCL = 1</div><div class="text-slate-400 mt-2">Bus released, returns to IDLE</div>`,
+      1, 1, 'master', 'STOP condition — bus released', '', null);
+    return cps;
+  }
+
+  // Data bits - each bit has SETUP + SAMPLE
+  for (let i = 0; i < 8; i++) {
+    const bit = parseInt(dataBin[i]);
+    const bitName = i === 0 ? 'MSB (D7)' : i === 7 ? 'LSB (D0)' : `D${7-i}`;
+    
+    add('DATA', `Data Bit ${i+1}/8: ${bitName} = ${bit} [SETUP]`,
+      `Master places data bit <strong class="text-sky-400">${bit}</strong> on SDA while SCL is LOW. The byte is being transmitted MSB first.`,
+      `<div class="flex gap-4 items-center"><div class="text-purple-300 font-bold text-lg">SDA = ${bit}</div><div class="text-amber-300">SCL = 0</div></div><div class="text-slate-400 mt-2">Data so far: <span class="text-green-300">${dataBin.substring(0, i+1)}</span><span class="text-slate-600">${dataBin.substring(i+1)}</span></div><div class="text-slate-400">= 0x${parseInt(dataBin.substring(0, i+1).padEnd(8,'0'), 2).toString(16).toUpperCase().padStart(2,'0')}</div>`,
+      bit, 0, 'master', `DATA bit ${i+1} SETUP: ${bit}`, '📦', '↓');
+
+    add('DATA', `Data Bit ${i+1}/8: ${bitName} = ${bit} [SAMPLE]`,
+      `SCL rises HIGH. Slave samples SDA on the rising edge and reads bit <strong class="text-sky-400">${bit}</strong>.`,
+      `<div class="flex gap-4 items-center"><div class="text-purple-300 font-bold text-lg">SDA = ${bit} (sampled)</div><div class="text-amber-300 font-bold">SCL = 1 ↑</div></div><div class="text-green-400 mt-2">✓ Slave samples this bit</div>`,
+      bit, 1, 'master', `DATA bit ${i+1} SAMPLED: ${bit}`, '📦', '↑');
+  }
+
+  // Data ACK - SETUP + SAMPLE
+  add('ACK', (ack ? '✅ Data ACK' : '❌ Data NACK') + ' — Setup',
+    ack
+      ? `Master releases SDA. Slave will pull it LOW to acknowledge the data byte.`
+      : `Master releases SDA. Slave does not ACK.`,
+    ack
+      ? `<div class="text-slate-400">SDA released</div><div class="text-amber-300">SCL = 0</div><div class="text-slate-400 mt-2">→ Slave will drive ACK</div>`
+      : `<div class="text-slate-400">SDA released (stays HIGH)</div><div class="text-amber-300">SCL = 0</div>`,
+    1, 0, 'none', 'Data ACK/NACK setup', '', '↓');
+
+  add('ACK', ack ? '✅ Data ACK — Byte Received' : '❌ Data NACK',
+    ack
+      ? `Slave pulls SDA LOW. Master samples <strong class="text-green-400">ACK = 0</strong>. Byte 0x${data.toString(16).toUpperCase().padStart(2,'0')} (${data}) successfully received!`
+      : `Slave does not ACK. Master sees NACK = 1.`,
+    ack
+      ? `<div class="text-green-400 font-bold">ACK = 0</div><div class="text-amber-300 font-bold">SCL = 1 ↑</div><div class="text-slate-400 mt-2">Byte 0x${data.toString(16).toUpperCase().padStart(2,'0')} (${data}) received</div><div class="text-slate-400">Next: STOP condition</div>`
+      : `<div class="text-red-400 font-bold">NACK = 1</div><div class="text-amber-300 font-bold">SCL = 1 ↑</div>`,
+    ackBit, 1, 'slave', ack ? 'Data ACK received' : 'Data NACK', ack ? '✅' : '❌', '↑');
+
+  // STOP condition
+  add('STOP', 'STOP Preparation — SCL HIGH, SDA LOW',
+    `Master pulls SCL HIGH while keeping SDA LOW. This is the first half of the STOP condition.`,
+    `<div class="text-amber-300 font-bold">SCL = 1</div><div class="text-purple-300">SDA = 0 (still LOW)</div><div class="text-slate-400 mt-2">→ Next: SDA will rise while SCL stays HIGH</div>`,
+    0, 1, 'master', 'STOP prep: SCL=1, SDA=0', '', '↑');
+
+  add('STOP', '🔴 STOP Condition — Transfer Complete',
+    `Master releases SDA. The <strong class="text-red-400">LOW→HIGH transition on SDA while SCL=HIGH</strong> signals all slaves that the transfer is over. Bus returns to IDLE state with both lines pulled HIGH by resistors.`,
+    `<div class="text-red-400 font-bold">STOP: SDA ↑ while SCL = 1</div><div class="text-slate-400 mt-2">Bus free. All slaves return to listening.</div><div class="text-green-400 mt-2">✓ Transfer complete!</div>`,
+    1, 1, 'master', 'STOP condition — transfer complete', '', null);
+
+  return cps;
+}
+
+// ============================================================
+// RENDERING
+// ============================================================
+
+function renderConfig() {
+  const a = parseInt(els.cfgAddr.value) || 0;
+  const d = parseInt(els.cfgData.value) || 0;
+  state.addr = Math.max(0, Math.min(127, a));
+  state.data = Math.max(0, Math.min(255, d));
+  els.cfgAddrHex.textContent = '0x' + state.addr.toString(16).toUpperCase().padStart(2, '0');
+  els.cfgAddrBin.textContent = state.addr.toString(2).padStart(7, '0');
+  els.cfgDataHex.textContent = '0x' + state.data.toString(16).toUpperCase().padStart(2, '0');
+  els.cfgDataBin.textContent = state.data.toString(2).padStart(8, '0');
+}
+
+function renderDirection() {
+  if (state.dir === 0) {
+    els.dirWrite.className = 'dir-btn btn bg-sky-600 text-white px-3 py-1.5 rounded-lg text-sm font-semibold';
+    els.dirRead.className = 'dir-btn btn bg-slate-800 text-slate-300 px-3 py-1.5 rounded-lg text-sm font-semibold';
+  } else {
+    els.dirWrite.className = 'dir-btn btn bg-slate-800 text-slate-300 px-3 py-1.5 rounded-lg text-sm font-semibold';
+    els.dirRead.className = 'dir-btn btn bg-sky-600 text-white px-3 py-1.5 rounded-lg text-sm font-semibold';
+  }
+}
+
+function renderResponse() {
+  if (state.ack) {
+    els.respAck.className = 'resp-btn btn bg-green-600 text-white px-3 py-1.5 rounded-lg text-sm font-semibold';
+    els.respNack.className = 'resp-btn btn bg-slate-800 text-slate-300 px-3 py-1.5 rounded-lg text-sm font-semibold';
+  } else {
+    els.respAck.className = 'resp-btn btn bg-slate-800 text-slate-300 px-3 py-1.5 rounded-lg text-sm font-semibold';
+    els.respNack.className = 'resp-btn btn bg-red-600 text-white px-3 py-1.5 rounded-lg text-sm font-semibold';
+  }
+}
+
+function setWireState(sda, scl, pulse = true) {
+  // SDA
+  const sdaClass = 'wire sda ' + (sda ? 'high' : 'low');
+  if (els.wireSda.className !== sdaClass) {
+    els.wireSda.className = sdaClass;
+    if (pulse) {
+      els.wireSda.classList.add('pulse');
+      setTimeout(() => els.wireSda.classList.remove('pulse'), 300);
+    }
+  }
+  
+  // SCL
+  const sclClass = 'wire scl ' + (scl ? 'high' : 'low');
+  if (els.wireScl.className !== sclClass) {
+    els.wireScl.className = sclClass;
+    if (pulse) {
+      els.wireScl.classList.add('pulse');
+      setTimeout(() => els.wireScl.classList.remove('pulse'), 300);
+    }
+  }
+
+  // Drops
+  const dropSdaClass = 'drop sda ' + (sda ? 'high' : 'low');
+  const dropSclClass = 'drop scl ' + (scl ? 'high' : 'low');
+  els.dropMasterSda.className = dropSdaClass;
+  els.dropSlave1Sda.className = dropSdaClass;
+  els.dropSlave2Sda.className = dropSdaClass;
+  els.dropMasterScl.className = dropSclClass;
+  els.dropSlave1Scl.className = dropSclClass;
+  els.dropSlave2Scl.className = dropSclClass;
+
+  // Edge indicator
+  if (scl === 1) {
+    els.edgeIndicator.textContent = '↑ RISING EDGE (Sample)';
+    els.edgeIndicator.classList.add('show');
+    setTimeout(() => els.edgeIndicator.classList.remove('show'), 500);
+  } else if (scl === 0) {
+    els.edgeIndicator.textContent = '↓ FALLING EDGE (Setup)';
+    els.edgeIndicator.classList.add('show');
+    setTimeout(() => els.edgeIndicator.classList.remove('show'), 500);
+  }
+}
+
+function setChipStates(driving) {
+  els.chipMaster.classList.remove('driving', 'addressed', 'listening');
+  els.chipSlave1.classList.remove('driving', 'addressed', 'listening');
+  els.chipSlave2.classList.remove('driving', 'addressed', 'listening');
+
+  if (driving === 'master') {
+    els.chipMaster.classList.add('driving');
+    els.masterStatus.textContent = 'Driving bus';
+    els.masterStatus.className = 'text-[10px] mono text-sky-400 mt-1 font-bold';
+  } else if (driving === 'slave') {
+    els.chipMaster.classList.add('listening');
+    els.masterStatus.textContent = 'Listening for ACK';
+    els.masterStatus.className = 'text-[10px] mono text-purple-400 mt-1';
+    if (state.addr === 72) {
+      els.chipSlave1.classList.add('addressed', 'driving');
+      els.slave1Status.textContent = 'Driving ACK';
+      els.slave1Status.className = 'text-[10px] mono text-green-400 mt-1 font-bold';
+    } else if (state.addr === 104) {
+      els.chipSlave2.classList.add('addressed', 'driving');
+      els.slave2Status.textContent = 'Driving ACK';
+      els.slave2Status.className = 'text-[10px] mono text-green-400 mt-1 font-bold';
+    }
+  } else {
+    els.masterStatus.textContent = 'Idle';
+    els.masterStatus.className = 'text-[10px] mono text-slate-500 mt-1';
+    els.slave1Status.textContent = 'Idle';
+    els.slave1Status.className = 'text-[10px] mono text-slate-500 mt-1';
+    els.slave2Status.textContent = 'Idle';
+    els.slave2Status.className = 'text-[10px] mono text-slate-500 mt-1';
+  }
+
+  if (driving !== 'none') {
+    els.drivingBadge.classList.remove('hidden');
+    els.drivingWho.textContent = driving === 'master' ? '🟦 MASTER (MCU)' : '🟩 SLAVE (Addressed)';
+    els.drivingWho.className = driving === 'master' ? 'text-sky-400 font-bold' : 'text-green-400 font-bold';
+  } else {
+    els.drivingBadge.classList.add('hidden');
+  }
+}
+
+function renderBitTimeline() {
+  els.bitTimeline.innerHTML = '';
+  state.checkpoints.forEach((cp, idx) => {
+    const div = document.createElement('div');
+    const isCurrent = idx === state.currentCheckpoint;
+    const isDone = idx < state.currentCheckpoint;
+    
+    // Color based on phase and whether it's setup or sample
+    let colorClass = 'border-slate-600 bg-slate-800 text-slate-400';
+    if (cp.phase === 'START') colorClass = 'border-red-500 bg-red-500/20 text-red-300';
+    else if (cp.phase === 'ADDR') colorClass = cp.scl === 1 ? 'border-purple-400 bg-purple-500/30 text-purple-200' : 'border-purple-600 bg-purple-500/10 text-purple-400';
+    else if (cp.phase === 'RW') colorClass = cp.scl === 1 ? 'border-sky-400 bg-sky-500/30 text-sky-200' : 'border-sky-600 bg-sky-500/10 text-sky-400';
+    else if (cp.phase === 'ACK') {
+      if (cp.title.includes('NACK')) colorClass = 'border-red-500 bg-red-500/20 text-red-300';
+      else colorClass = cp.scl === 1 ? 'border-green-400 bg-green-500/30 text-green-200' : 'border-green-600 bg-green-500/10 text-green-400';
+    }
+    else if (cp.phase === 'DATA') colorClass = cp.scl === 1 ? 'border-amber-400 bg-amber-500/30 text-amber-200' : 'border-amber-600 bg-amber-500/10 text-amber-400';
+    else if (cp.phase === 'STOP') colorClass = 'border-red-500 bg-red-500/20 text-red-300';
+
+    const label = cp.scl === 1 ? '↑' : (cp.scl === 0 && cp.phase !== 'IDLE' ? '↓' : '·');
+    
+    div.className = `bit-cell shrink-0 w-10 h-12 rounded border-2 flex flex-col items-center justify-center mono text-[10px] ${colorClass} ${isCurrent ? 'current' : ''} ${isDone ? 'done' : ''}`;
+    div.innerHTML = `<div class="font-bold text-sm">${cp.sda}</div><div class="text-[9px] opacity-80">${label}</div>`;
+    div.title = `${cp.phase}: ${cp.title}`;
+    els.bitTimeline.appendChild(div);
+  });
+  
+  if (state.currentCheckpoint >= 0) {
+    const current = els.bitTimeline.children[state.currentCheckpoint];
+    if (current) current.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+  }
+}
+
+function renderPhaseExplanation(cp) {
+  els.phaseExplain.innerHTML = cp.body;
+}
+
+function logEvent(msg) {
+  const div = document.createElement('div');
+  div.className = 'text-slate-300 border-l-2 border-sky-700 pl-2';
+  div.innerHTML = `<span class="text-slate-600">#${(state.currentCheckpoint+1).toString().padStart(2,'0')}</span> ${msg}`;
+  els.logContainer.insertBefore(div, els.logContainer.firstChild);
+  if (els.logContainer.children.length > 30) {
+    els.logContainer.removeChild(els.logContainer.lastChild);
+  }
+}
+
+function updateProgress() {
+  els.progressText.textContent = `${state.currentCheckpoint + 1} / ${state.checkpoints.length}`;
+}
+
+// ============================================================
+// WAVEFORM
+// ============================================================
+function resizeCanvas() {
+  const rect = els.canvas.getBoundingClientRect();
+  els.canvas.width = rect.width * window.devicePixelRatio;
+  els.canvas.height = 200 * window.devicePixelRatio;
+  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+  els.canvas.style.width = rect.width + 'px';
+  els.canvas.style.height = '200px';
+}
+window.addEventListener('resize', resizeCanvas);
+
+function drawWaveform() {
+  const w = els.canvas.width / window.devicePixelRatio;
+  const h = els.canvas.height / window.devicePixelRatio;
+  ctx.clearRect(0, 0, w, h);
+
+  // Grid
+  ctx.strokeStyle = '#1e293b';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < w; i += 40) {
+    ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, h); ctx.stroke();
+  }
+  for (let i = 0; i < h; i += 40) {
+    ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(w, i); ctx.stroke();
+  }
+
+  const history = state.sclHistory;
+  if (history.length < 2) return;
+
+  const maxSamples = Math.max(30, Math.floor(w / 8));
+  const visible = history.slice(-maxSamples);
+  const stepWidth = w / maxSamples;
+
+  const sdaY_high = 50, sdaY_low = 130;
+  const sclY_high = 155, sclY_low = 185;
+
+  // SCL (amber) - draw first (background)
+  ctx.strokeStyle = '#fbbf24';
+  ctx.lineWidth = 2.5;
+  ctx.shadowColor = '#fbbf24';
+  ctx.shadowBlur = 8;
+  ctx.beginPath();
+  visible.forEach((s, i) => {
+    const x = i * stepWidth;
+    const y = s.scl ? sclY_high : sclY_low;
+    if (i === 0) ctx.moveTo(x, y);
+    else {
+      const prevY = visible[i-1].scl ? sclY_high : sclY_low;
+      if (prevY !== y) { ctx.lineTo(x, prevY); ctx.lineTo(x, y); }
+      else ctx.lineTo(x, y);
+    }
+  });
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // SDA (purple) - draw on top
+  ctx.strokeStyle = '#c4b5fd';
+  ctx.lineWidth = 2.5;
+  ctx.shadowColor = '#c4b5fd';
+  ctx.shadowBlur = 8;
+  ctx.beginPath();
+  visible.forEach((s, i) => {
+    const x = i * stepWidth;
+    const y = s.sda ? sdaY_high : sdaY_low;
+    if (i === 0) ctx.moveTo(x, y);
+    else {
+      const prevY = visible[i-1].sda ? sdaY_high : sdaY_low;
+      if (prevY !== y) { ctx.lineTo(x, prevY); ctx.lineTo(x, y); }
+      else ctx.lineTo(x, y);
+    }
+  });
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // Labels
+  ctx.fillStyle = '#c4b5fd';
+  ctx.font = 'bold 11px JetBrains Mono';
+  ctx.fillText('SDA', 8, sdaY_high - 8);
+  ctx.fillStyle = '#fbbf24';
+  ctx.fillText('SCL', 8, sclY_high - 8);
+
+  // Current position marker
+  if (visible.length > 0) {
+    const markerX = (visible.length - 1) * stepWidth;
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(markerX, 0);
+    ctx.lineTo(markerX, h);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+}
+
+// ============================================================
+// INFO PANEL
+// ============================================================
+function showInfoPanel() {
+  if (state.currentCheckpoint < 0 || state.currentCheckpoint >= state.checkpoints.length) {
+    els.infoContent.innerHTML = '<div class="text-slate-500 italic text-sm">No step active. Press Play to begin.</div>';
+  } else {
+    const cp = state.checkpoints[state.currentCheckpoint];
+    const phaseColors = {
+      'IDLE': 'bg-slate-500/20 text-slate-300',
+      'START': 'bg-red-500/20 text-red-400',
+      'ADDR': 'bg-purple-500/20 text-purple-400',
+      'RW': 'bg-sky-500/20 text-sky-400',
+      'ACK': cp.title.includes('NACK') ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400',
+      'DATA': 'bg-amber-500/20 text-amber-400',
+      'STOP': 'bg-red-500/20 text-red-400'
+    };
+    const colorClass = phaseColors[cp.phase] || 'bg-sky-500/20 text-sky-400';
+    const edgeLabel = cp.edge === '↑' ? 'RISING EDGE (Sample)' : cp.edge === '↓' ? 'FALLING EDGE (Setup)' : 'No edge';
+    
+    els.infoContent.innerHTML = `
+      <div class="flex items-center gap-3 mb-4">
+        <div class="phase-icon ${colorClass}">${cp.icon || '·'}</div>
+        <div>
+          <div class="text-xs mono text-slate-500">${cp.phase} · Step ${state.currentCheckpoint + 1} of ${state.checkpoints.length}</div>
+          <div class="text-lg font-bold text-white">${cp.title}</div>
+        </div>
+      </div>
+      <div class="bg-slate-900/50 rounded-lg p-4 border border-slate-700 mb-4">
+        <div class="text-xs text-slate-400 uppercase tracking-wider mb-2">Explanation</div>
+        <div class="text-sm text-slate-200 leading-relaxed">${cp.body}</div>
+      </div>
+      <div class="bg-slate-950 rounded-lg p-4 border border-slate-800 mono text-xs">
+        <div class="text-xs text-slate-400 uppercase tracking-wider mb-2">Visual State</div>
+        ${cp.visual}
+      </div>
+      <div class="grid grid-cols-4 gap-2 mt-4">
+        <div class="bg-slate-900 rounded p-2 text-center">
+          <div class="text-[10px] text-slate-500">SDA</div>
+          <div class="text-lg font-bold ${cp.sda ? 'text-purple-300' : 'text-slate-500'}">${cp.sda}</div>
+        </div>
+        <div class="bg-slate-900 rounded p-2 text-center">
+          <div class="text-[10px] text-slate-500">SCL</div>
+          <div class="text-lg font-bold ${cp.scl ? 'text-amber-300' : 'text-slate-500'}">${cp.scl}</div>
+        </div>
+        <div class="bg-slate-900 rounded p-2 text-center">
+          <div class="text-[10px] text-slate-500">Driver</div>
+          <div class="text-xs font-bold ${cp.driving === 'master' ? 'text-sky-400' : cp.driving === 'slave' ? 'text-green-400' : 'text-slate-500'}">${cp.driving.toUpperCase()}</div>
+        </div>
+        <div class="bg-slate-900 rounded p-2 text-center">
+          <div class="text-[10px] text-slate-500">Edge</div>
+          <div class="text-xs font-bold ${cp.edge === '↑' ? 'text-amber-400' : cp.edge === '↓' ? 'text-slate-400' : 'text-slate-600'}">${edgeLabel}</div>
+        </div>
+      </div>
+      <div class="mt-4 bg-sky-500/10 border border-sky-500/30 rounded p-3 text-xs text-sky-200">
+        <strong>💡 Key Rule:</strong> SDA can only change when SCL is LOW. Receivers sample SDA on the SCL rising edge (↑).
+      </div>
+    `;
+  }
+  els.infoPanel.classList.add('open');
+}
+
+function hideInfoPanel() {
+  els.infoPanel.classList.remove('open');
+}
+
+// ============================================================
+// STEP EXECUTION
+// ============================================================
+function goToStep(idx) {
+  if (idx < 0 || idx >= state.checkpoints.length) return;
+  state.currentCheckpoint = idx;
+  const cp = state.checkpoints[idx];
+
+  setWireState(cp.sda, cp.scl, true);
+  setChipStates(cp.driving);
+  
+  state.sclHistory.push({ scl: cp.scl, sda: cp.sda });
+  state.sdaHistory.push(cp.sda);
+
+  renderBitTimeline();
+  renderPhaseExplanation(cp);
+  drawWaveform();
+  updateProgress();
+  logEvent(cp.logMsg);
+
+  if (cp.phase !== 'IDLE') {
+    els.currentBitBadge.classList.remove('hidden');
+    els.currentBitValue.textContent = cp.sda;
+    els.currentBitMeaning.textContent = cp.scl === 1 ? `${cp.phase} · SAMPLE ↑` : `${cp.phase} · SETUP ↓`;
+    els.currentBitValue.className = cp.sda ? 'text-purple-300 font-bold text-xl' : 'text-slate-500 font-bold text-xl';
+  } else {
+    els.currentBitBadge.classList.add('hidden');
+  }
+
+  els.btnStepBack.disabled = idx <= 0;
+  
+  const isLast = idx === state.checkpoints.length - 1;
+  if (isLast) {
+    state.playing = false;
+    updatePlayButton();
+  }
+}
+
+function stepForward() {
+  if (state.currentCheckpoint < state.checkpoints.length - 1) {
+    goToStep(state.currentCheckpoint + 1);
+  } else {
+    state.playing = false;
+    updatePlayButton();
+  }
+}
+
+function stepBackward() {
+  if (state.currentCheckpoint > 0) {
+    const target = state.currentCheckpoint - 1;
+    state.currentCheckpoint = -1;
+    state.sclHistory = [];
+    state.sdaHistory = [];
+    els.logContainer.innerHTML = '<div class="text-slate-500 italic">Rewound...</div>';
+    for (let i = 0; i <= target; i++) {
+      state.currentCheckpoint = i;
+      const cp = state.checkpoints[i];
+      state.sclHistory.push({ scl: cp.scl, sda: cp.sda });
+      state.sdaHistory.push(cp.sda);
+    }
+    goToStep(target);
+  }
+}
+
+function resetSimulation() {
+  state.playing = false;
+  state.currentCheckpoint = -1;
+  state.sclHistory = [];
+  state.sdaHistory = [];
+  state.checkpoints = buildCheckpoints();
+  state.lastTick = 0;
+  state.tickAccumulator = 0;
+  els.logContainer.innerHTML = '<div class="text-slate-500 italic">Ready...</div>';
+  els.currentBitBadge.classList.add('hidden');
+  els.drivingBadge.classList.add('hidden');
+  setWireState(1, 1, false);
+  setChipStates('none');
+  renderBitTimeline();
+  drawWaveform();
+  updateProgress();
+  updatePlayButton();
+  els.btnStepBack.disabled = true;
+  els.phaseExplain.innerHTML = 'Press <span class="mono text-sky-400 font-bold">Play</span> to start. Bus is IDLE with SDA=SCL=HIGH.';
+}
+
+function updatePlayButton() {
+  if (state.playing) {
+    els.iconPlay.classList.add('hidden');
+    els.iconPause.classList.remove('hidden');
+    els.playText.textContent = 'Pause';
+    els.btnPlay.classList.remove('bg-sky-600', 'hover:bg-sky-500');
+    els.btnPlay.classList.add('bg-amber-600', 'hover:bg-amber-500');
+  } else {
+    els.iconPlay.classList.remove('hidden');
+    els.iconPause.classList.add('hidden');
+    const isEnd = state.currentCheckpoint >= state.checkpoints.length - 1;
+    els.playText.textContent = isEnd ? 'Replay' : 'Play';
+    els.btnPlay.classList.remove('bg-amber-600', 'hover:bg-amber-500');
+    els.btnPlay.classList.add('bg-sky-600', 'hover:bg-sky-500');
+  }
+}
+
+// ============================================================
+// ANIMATION LOOP
+// ============================================================
+function animationLoop(timestamp) {
+  if (state.playing) {
+    if (!state.lastTick) state.lastTick = timestamp;
+    const dt = timestamp - state.lastTick;
+    state.lastTick = timestamp;
+    
+    // Speed: 1 = 500ms per step, 10 = 50ms per step
+    const interval = 500 - (state.speed - 1) * 50;
+    state.tickAccumulator += dt;
+    
+    while (state.tickAccumulator >= interval && state.playing) {
+      state.tickAccumulator -= interval;
+      if (state.currentCheckpoint < state.checkpoints.length - 1) {
+        stepForward();
+      } else {
+        state.playing = false;
+        updatePlayButton();
+        break;
+      }
+    }
+  } else {
+    state.lastTick = 0;
+    state.tickAccumulator = 0;
+  }
+  requestAnimationFrame(animationLoop);
+}
+
+// ============================================================
+// EVENT LISTENERS
+// ============================================================
+els.cfgAddr.addEventListener('input', () => { renderConfig(); if (state.currentCheckpoint === -1) resetSimulation(); });
+els.cfgData.addEventListener('input', () => { renderConfig(); if (state.currentCheckpoint === -1) resetSimulation(); });
+els.dirWrite.addEventListener('click', () => { state.dir = 0; renderDirection(); if (state.currentCheckpoint === -1) resetSimulation(); });
+els.dirRead.addEventListener('click', () => { state.dir = 1; renderDirection(); if (state.currentCheckpoint === -1) resetSimulation(); });
+els.respAck.addEventListener('click', () => { state.ack = true; renderResponse(); if (state.currentCheckpoint === -1) resetSimulation(); });
+els.respNack.addEventListener('click', () => { state.ack = false; renderResponse(); if (state.currentCheckpoint === -1) resetSimulation(); });
+els.cfgSpeed.addEventListener('input', (e) => { state.speed = parseInt(e.target.value); els.speedLabel.textContent = state.speed + 'x'; });
+
+els.btnPlay.addEventListener('click', () => {
+  if (state.currentCheckpoint >= state.checkpoints.length - 1) {
+    resetSimulation();
+    setTimeout(() => { state.playing = true; updatePlayButton(); }, 50);
+  } else {
+    state.playing = !state.playing;
+    updatePlayButton();
+  }
+});
+
+els.btnStepFwd.addEventListener('click', () => {
+  state.playing = false;
+  updatePlayButton();
+  stepForward();
+});
+
+els.btnStepBack.addEventListener('click', () => {
+  state.playing = false;
+  updatePlayButton();
+  stepBackward();
+});
+
+els.btnReset.addEventListener('click', () => {
+  state.playing = false;
+  resetSimulation();
+});
+
+els.infoToggle.addEventListener('click', showInfoPanel);
+els.infoClose.addEventListener('click', hideInfoPanel);
+
+// Keyboard shortcuts
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.code === 'Space') {
+    e.preventDefault();
+    els.btnPlay.click();
+  } else if (e.code === 'ArrowRight') {
+    state.playing = false;
+    updatePlayButton();
+    stepForward();
+  } else if (e.code === 'ArrowLeft') {
+    state.playing = false;
+    updatePlayButton();
+    stepBackward();
+  } else if (e.code === 'KeyR') {
+    resetSimulation();
+  } else if (e.code === 'KeyI') {
+    if (els.infoPanel.classList.contains('open')) hideInfoPanel();
+    else showInfoPanel();
+  } else if (e.code === 'Escape') {
+    hideInfoPanel();
+  }
+});
+
+// ============================================================
+// INIT
+// ============================================================
+resizeCanvas();
+renderConfig();
+renderDirection();
+renderResponse();
+resetSimulation();
+requestAnimationFrame(animationLoop);
+</script>
+</body>
+</html>
+
