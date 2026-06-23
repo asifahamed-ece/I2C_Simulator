@@ -15,12 +15,19 @@
 </div>
 
 ---
+## 🚀 Live Demo
+
+**🔗 Try it live:** [https://asifahamed-ece.github.io/I2C_Simulator/](https://asifahamed-ece.github.io/I2C_Simulator/)
+
+---
 
 ## 📖 Overview
 
 This simulator provides a **visual, interactive learning experience** for understanding the I2C (Inter-Integrated Circuit) protocol — one of the most widely used communication protocols in embedded systems.
 
 Unlike static diagrams, this tool lets you **see every bit being transmitted in real-time**, with detailed explanations at each step. It's designed specifically for **ECE students and embedded systems enthusiasts** who want to move beyond theory and actually *see* how I2C works at the hardware level.
+
+---
 
 ### 🎯 What You'll Learn
 
@@ -31,12 +38,6 @@ Unlike static diagrams, this tool lets you **see every bit being transmitted in 
 - How **ACK/NACK** handshaking works between Master and Slave
 - The complete **bit-by-bit data transfer** sequence
 - Real-time **oscilloscope-style waveform** visualization
-
----
-
-## 🚀 Live Demo
-
-**🔗 Try it live:** [https://asifahamed-ece.github.io/I2C_Simulator/](https://asifahamed-ece.github.io/I2C_Simulator/)
 
 ---
 
