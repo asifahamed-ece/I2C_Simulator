@@ -237,10 +237,10 @@ Final Year ECE Student | Embedded Systems Enthusiast
 ## 📊 Project Status
 
 ✅ **Active Development** — Currently working on:
-- [ ] SPI Protocol Simulator
-- [ ] UART Protocol Simulator  
-- [ ] Combined Protocol Comparison Tool
-- [ ] Real hardware integration examples (STM32, ESP32 code snippets)
+-  SPI Protocol Simulator
+-  UART Protocol Simulator  
+-  Combined Protocol Comparison Tool
+-  Real hardware integration examples (STM32, ESP32 code snippets)
 
 ---
 
