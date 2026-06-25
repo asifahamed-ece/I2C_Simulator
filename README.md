@@ -223,7 +223,7 @@ Final Year ECE Student | Embedded Systems Enthusiast
 🏫 Rajalakshmi Engineering College
 
 - 🐙 GitHub: [@asifahamed-ece](https://github.com/asifahamed-ece)
-- 💼 LinkedIn: [Asif Ahamed](https://linkedin.com/in/asif-ahamed)
+- 💼 LinkedIn: [Asif Ahamed](https://linkedin.com/in/asif-ahamed-s-ece)
 
 ---
 
